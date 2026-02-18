@@ -18,6 +18,12 @@
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
       
+      /* Força fundo branco e previne dark mode */
+      html, body {
+        background-color: #ffffff !important;
+        color: #111827 !important;
+      }
+      
       body { font-family: 'Inter', sans-serif; }
       
       /* Animations */
@@ -49,7 +55,7 @@
       .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
-<body class="bg-gray-50 text-gray-900 h-screen overflow-hidden">
+<body class="bg-white text-gray-900 h-screen overflow-hidden">
     <div id="root" class="h-full"></div>
 
     <script type="text/babel">
@@ -610,7 +616,7 @@ Retorne APENAS um JSON válido no formato:
             };
 
             return (
-                <div className="flex justify-center items-center min-h-screen bg-gray-100 font-sans">
+                <div className="flex justify-center items-center min-h-screen bg-white font-sans">
                     <div className="w-full max-w-md h-[100dvh] bg-white shadow-xl overflow-hidden flex flex-col relative">
                         {step === 'checking' && <div className="h-full flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500"></div></div>}
                         {step === 'login' && <LoginScreen onLogin={validateAccess} />}
