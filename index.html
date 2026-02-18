@@ -8,198 +8,268 @@
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- React & ReactDOM (UMD Global para evitar erros de import map no mobile) -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    
-    <!-- Babel Standalone -->
+    <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Lucide Icons (Global) -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-
-    <!-- Google GenAI SDK (ESM Module shim) -->
+    <!-- Import Maps for Modules -->
     <script type="importmap">
     {
       "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.263.1",
         "@google/genai": "https://esm.sh/@google/genai@0.1.1"
       }
     }
     </script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-        
-        .fade-in { animation: fadeIn 0.5s ease-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        
-        .slide-up { animation: slideUp 0.3s ease-out forwards; }
-        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-        
-        /* Hide Scrollbar */
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+      
+      body { font-family: 'Inter', sans-serif; }
+      
+      /* Animations */
+      @keyframes fade-in {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .animate-fade-in { animation: fade-in 0.5s ease-out forwards; }
+      
+      @keyframes slide-up {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+      }
+      .animate-slide-up { animation: slide-up 0.3s ease-out forwards; }
+      
+      @keyframes pulse-soft {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+      }
+      .animate-pulse-soft { animation: pulse-soft 2s infinite; }
+
+      @keyframes loading {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+      }
+
+      /* Scrollbar Hide */
+      .scrollbar-hide::-webkit-scrollbar { display: none; }
+      .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-900 h-screen overflow-hidden flex justify-center items-center">
+<body class="bg-gray-50 text-gray-900 h-screen overflow-hidden">
+    <div id="root" class="h-full"></div>
 
-    <!-- App Container -->
-    <div id="root" class="w-full max-w-md h-[100dvh] bg-white shadow-xl overflow-hidden flex flex-col relative"></div>
-
-    <!-- MAIN SCRIPT -->
     <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import ReactDOM from 'react-dom/client';
+        import { 
+            Sparkles, ArrowRight, Lock, ChefHat, Clock, 
+            X, Check, Shield, AlertTriangle, MessageCircle, 
+            Calendar, ChevronDown, ChevronUp, Send, Crown,
+            Flame, Utensils, Leaf, ChevronRight
+        } from 'lucide-react';
         import { GoogleGenAI } from "@google/genai";
 
-        const { useState, useEffect, useRef } = React;
-        const { createRoot } = ReactDOM;
+        // --- CONFIGURAÇÕES ---
+        const SHEETDB_URL = 'https://sheetdb.io/api/v1/bsk8mjfevtm3l';
+        const GEMINI_API_KEY = "AIzaSyAkM07aMHk0p0-4gDAFL4gYqrzjzfpAbBQ"; 
+        const CAKTO_LINK = "https://pay.cakto.com.br/3fotcu8_725073";
 
-        // --- ICONS (Lucide Wrapper for React) ---
-        // Pequeno helper para usar ícones Lucide no React sem build complexo
-        const Icon = ({ name, size = 24, className = "" }) => {
-            useEffect(() => { lucide.createIcons(); }, [name]);
-            return <i data-lucide={name} className={className} style={{ width: size, height: size }}></i>;
+        // --- TYPES E DADOS ---
+        const CookingTime = {
+            FAST: 'Rápido (< 20min)',
+            MEDIUM: 'Médio (30-45min)',
+            ELABORATE: 'Elaborado (> 1h)'
         };
 
-        // --- CONFIG ---
-        const SHEETDB_URL = 'https://sheetdb.io/api/v1/bsk8mjfevtm3l';
-        const GEMINI_API_KEY = "AIzaSyAkM07aMHk0p0-4gDAFL4gYqrzjzfpAbBQ";
-
-        // --- TYPES/CONSTANTS ---
-        const CookingTime = { FAST: 'Rápido (< 20min)', MEDIUM: 'Médio (30-45min)', ELABORATE: 'Elaborado (> 1h)' };
-        const Goal = { LOSE: 'Perder Peso', MAINTAIN: 'Manter Peso', GAIN: 'Ganhar Massa', HEALTH: 'Reeducação' };
+        const Goal = {
+            LOSE_WEIGHT: 'Perder Peso',
+            MAINTAIN: 'Manter Peso',
+            GAIN_MUSCLE: 'Ganhar Massa Muscular',
+            HEALTHY_EATING: 'Reeducação Alimentar'
+        };
 
         const EMERGENCY_PLAN = {
-            days: Array(7).fill(null).map((_, i) => ({
-                day: ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'][i],
-                meals: {
-                    breakfast: { time: '08:00', name: 'Ovos Mexidos', ingredients: ['2 ovos', 'Pão integral'] },
-                    lunch: { time: '12:00', name: 'Grelhado Simples', ingredients: ['Frango', 'Salada', 'Arroz'] },
-                    snack: { time: '16:00', name: 'Fruta', ingredients: ['Maçã ou Banana'] },
-                    dinner: { time: '20:00', name: 'Sopa Leve', ingredients: ['Legumes variados'] }
-                }
-            }))
+            days: Array(7).fill(null).map((_, i) => {
+                const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+                return {
+                    day: days[i],
+                    meals: {
+                        breakfast: { time: '08:00', name: 'Ovos com Torrada', ingredients: ['2 ovos mexidos', '1 fatia pão integral', 'Café'] },
+                        lunch: { time: '12:00', name: 'Grelhado com Salada', ingredients: ['150g Frango', 'Salada variada', 'Arroz integral'] },
+                        snack: { time: '16:00', name: 'Fruta + Castanhas', ingredients: ['1 Maçã', '10g castanhas'] },
+                        dinner: { time: '20:00', name: 'Jantar Leve', ingredients: ['Omelete ou Sopa', 'Salada de folhas'] }
+                    }
+                };
+            })
         };
 
         // --- SERVICES ---
-        const services = {
-            getUser: async (email) => {
+
+        // SheetDB Service
+        const sheetDbService = {
+            getUserByEmail: async (email) => {
                 try {
-                    const res = await fetch(`${SHEETDB_URL}/search?email=${email}`);
-                    const data = await res.json();
-                    return data?.[0] || null;
-                } catch { return null; }
+                    const response = await fetch(`${SHEETDB_URL}/search?email=${email}`);
+                    const data = await response.json();
+                    return (Array.isArray(data) && data.length > 0) ? data[0] : null;
+                } catch (error) {
+                    console.error("Erro SheetDB", error);
+                    return null;
+                }
             },
             createUser: async (email) => {
-                const user = { email, data_cadastro: new Date().toISOString(), status_pagamento: 'pendente' };
+                const newUser = {
+                    email,
+                    data_cadastro: new Date().toISOString(),
+                    status_pagamento: 'pendente'
+                };
                 try {
                     await fetch(SHEETDB_URL, {
-                        method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ data: user })
+                        method: 'POST',
+                        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ data: newUser })
                     });
-                } catch {}
-                return user;
-            },
-            generatePlan: async (profile) => {
-                const getFallback = () => EMERGENCY_PLAN;
+                    return newUser;
+                } catch (error) {
+                    console.error("Erro criar user", error);
+                    return newUser; // Retorna localmente para não travar
+                }
+            }
+        };
+
+        // Gemini Service
+        const generateMealPlan = async (profile) => {
+            const getFallback = () => EMERGENCY_PLAN;
+
+            const timeoutPromise = new Promise((resolve) => {
+                setTimeout(() => {
+                    console.log("⏰ Timeout IA");
+                    resolve(getFallback());
+                }, 12000);
+            });
+
+            const apiCallPromise = async () => {
                 try {
                     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-                    const prompt = `Gere um plano alimentar de 7 dias (JSON) para: ${profile.age} anos, ${profile.weight}kg, Objetivo: ${profile.goal}. Restrições: ${profile.restrictions}. Retorne JSON no formato: { "days": [{ "day": "Segunda", "meals": { "breakfast": {"time":"", "name":"", "ingredients":[]}, "lunch": {...}, "snack": {...}, "dinner": {...} } }] }`;
+                    const favoritesList = profile.favorites ? profile.favorites.join(', ') : 'Variado';
                     
-                    const res = await Promise.race([
-                        ai.models.generateContent({ 
-                            model: 'gemini-2.0-flash', 
-                            contents: prompt, 
-                            config: { responseMimeType: "application/json" } 
-                        }),
-                        new Promise((_, r) => setTimeout(() => r("timeout"), 12000))
-                    ]);
+                    const prompt = `
+                        Crie um plano alimentar semanal de 7 dias (Segunda a Domingo) em JSON.
+                        Perfil: ${profile.age} anos, ${profile.weight}kg, ${profile.height}cm.
+                        Objetivo: ${profile.objective}.
+                        Tempo cozinha: ${profile.cookingTime}.
+                        Favoritos: ${favoritesList}.
+                        Restrições: ${profile.restrictions || 'Nenhuma'}.
+
+                        Retorne APENAS um JSON válido. Formato exato:
+                        {
+                          "days": [
+                            {
+                              "day": "Segunda-feira",
+                              "meals": {
+                                "breakfast": { "time": "08:00", "name": "Nome do prato", "ingredients": ["ingrediente 1", "ingrediente 2"] },
+                                "lunch": { "time": "12:00", "name": "Nome do prato", "ingredients": ["ingrediente 1"] },
+                                "snack": { "time": "16:00", "name": "Nome do prato", "ingredients": ["ingrediente 1"] },
+                                "dinner": { "time": "20:00", "name": "Nome do prato", "ingredients": ["ingrediente 1"] }
+                              }
+                            }
+                          ]
+                        }
+                    `;
+
+                    const response = await ai.models.generateContent({
+                        model: 'gemini-2.0-flash', 
+                        contents: prompt,
+                        config: { responseMimeType: "application/json" }
+                    });
+
+                    const text = response.text;
+                    if (!text) throw new Error("Vazio");
                     
-                    if (!res.text) return getFallback();
-                    return JSON.parse(res.text.replace(/```json|```/g, '').trim());
-                } catch (e) { console.error(e); return getFallback(); }
-            },
-            createChat: (profile, plan) => {
-                const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-                const chat = ai.chats.create({
-                    model: 'gemini-2.0-flash',
-                    config: { systemInstruction: `NutriAI. Plano: ${JSON.stringify(plan).substring(0,500)}...` }
-                });
-                return { sendMessage: async (msg) => (await chat.sendMessage({ message: msg })).text };
-            }
+                    // Limpeza extra para garantir JSON
+                    const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                    return JSON.parse(cleanText);
+
+                } catch (error) {
+                    console.error("Erro Gemini:", error);
+                    return getFallback();
+                }
+            };
+
+            return Promise.race([apiCallPromise(), timeoutPromise]);
+        };
+
+        const createChatSession = (profile, plan) => {
+            const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+            const systemInstruction = `Você é o NutriAI. Responda curto e amigável sobre este plano: ${JSON.stringify(plan).substring(0, 1000)}.`;
+            
+            const chat = ai.chats.create({
+                model: 'gemini-2.0-flash',
+                config: { systemInstruction }
+            });
+
+            return {
+                sendMessage: async (text) => {
+                    try {
+                        let modText = text;
+                        if(profile.restrictions) modText += ` (Lembre da restrição: ${profile.restrictions})`;
+                        const result = await chat.sendMessage({ message: modText });
+                        return { text: result.text };
+                    } catch(e) { return { text: "Erro de conexão momentâneo." }; }
+                }
+            };
         };
 
         // --- COMPONENTS ---
 
-        const Button = ({ children, onClick, disabled, className="" }) => (
-            <button onClick={onClick} disabled={disabled} 
-                className={`w-full py-3 rounded-xl font-bold bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg active:scale-95 disabled:opacity-50 ${className}`}>
-                {children}
-            </button>
-        );
-
-        const LoadingScreen = () => (
-            <div className="h-full flex flex-col items-center justify-center p-8 bg-white text-center">
-                <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center mb-6 animate-pulse">
-                    <Icon name="chef-hat" className="text-orange-500" size={40} />
-                </div>
-                <h3 className="text-xl font-bold">Preparando seu plano...</h3>
-                <div className="w-48 h-1 bg-gray-100 rounded-full mt-6 overflow-hidden">
-                    <div className="h-full bg-orange-500 w-full animate-[loading_8s_ease-out_forwards]" style={{animation: 'loading 8s ease-out forwards'}}></div>
-                </div>
-            </div>
-        );
+        const Button = ({ children, variant = 'primary', fullWidth = false, className = '', ...props }) => {
+            const base = "px-6 py-3 rounded-xl font-bold transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100";
+            const variants = {
+                primary: "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg hover:shadow-orange-500/30",
+                secondary: "bg-orange-100 text-orange-700 hover:bg-orange-200",
+                outline: "border-2 border-orange-500 text-orange-600 hover:bg-orange-50"
+            };
+            return <button className={`${base} ${variants[variant]} ${fullWidth ? 'w-full' : ''} ${className}`} {...props}>{children}</button>;
+        };
 
         const LoginScreen = ({ onLogin }) => {
             const [email, setEmail] = useState('');
             const [loading, setLoading] = useState(false);
-            return (
-                <div className="h-full bg-white flex flex-col p-8 justify-center items-center text-center fade-in">
-                    <div className="w-20 h-20 bg-gradient-to-br from-orange-500 to-red-600 rounded-3xl flex items-center justify-center shadow-xl mb-4 rotate-3">
-                        <Icon name="sparkles" className="text-white" size={40} />
-                    </div>
-                    <h1 className="text-3xl font-bold mb-8">NutriAI Web</h1>
-                    <input type="email" placeholder="seu@email.com" value={email} onChange={e=>setEmail(e.target.value)} 
-                        className="w-full p-4 bg-gray-50 border rounded-xl mb-4 focus:border-orange-500 outline-none" />
-                    <Button onClick={() => { setLoading(true); onLogin(email); }} disabled={!email.includes('@') || loading}>
-                        {loading ? 'Entrando...' : 'Começar Agora'}
-                    </Button>
-                </div>
-            );
-        };
 
-        const PaymentScreen = () => {
-            const [time, setTime] = useState("03:47:22");
-            useEffect(() => {
-                let s = 13642; 
-                const t = setInterval(() => {
-                    s--;
-                    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
-                    setTime(`${h}:${m<10?'0'+m:m}:${sec<10?'0'+sec:sec}`);
-                }, 1000);
-                return () => clearInterval(t);
-            }, []);
-            
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!email.includes('@')) return;
+                setLoading(true);
+                await onLogin(email);
+                setLoading(false);
+            };
+
             return (
-                <div className="h-full bg-white overflow-y-auto pb-10">
-                    <header className="bg-gradient-to-r from-orange-500 to-orange-400 p-6 rounded-b-3xl text-center shadow-lg text-white">
-                        <Icon name="clock" className="mx-auto mb-2" />
-                        <p className="text-sm opacity-90">OFERTA EXPIRA EM</p>
-                        <div className="text-2xl font-mono font-black">{time}</div>
-                    </header>
-                    <div className="p-6 space-y-6 text-center">
-                        <h2 className="text-2xl font-bold text-orange-600">Não perca sua evolução.</h2>
-                        <div className="bg-orange-50 p-4 rounded-xl border-l-4 border-orange-500 text-left text-sm">
-                            <p className="font-bold mb-2">Sem o NutriAI:</p>
-                            <p>❌ Sem saber o que comer</p>
-                            <p>❌ Compras erradas no mercado</p>
+                <div className="h-full bg-white flex flex-col p-8 animate-fade-in relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-orange-100 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 opacity-50 pointer-events-none"></div>
+                    <div className="flex-1 flex flex-col justify-center items-center text-center space-y-8 z-10">
+                        <div className="w-20 h-20 bg-gradient-to-br from-orange-500 to-red-600 rounded-3xl flex items-center justify-center shadow-xl mb-4 transform rotate-3">
+                            <Sparkles className="w-10 h-10 text-white" />
                         </div>
-                        <div className="bg-white border rounded-2xl p-4 shadow-xl">
-                            <p className="line-through text-gray-400">R$ 49,90</p>
-                            <p className="text-3xl font-black text-green-600">R$ 13,99<span className="text-sm text-gray-500 font-normal">/mês</span></p>
-                            <p className="text-xs text-orange-500 font-bold mt-1">MENOS QUE UM CAFÉ ☕</p>
+                        <div className="space-y-2">
+                            <h1 className="text-3xl font-bold text-gray-900">NutriAI Web</h1>
+                            <p className="text-gray-500">Sua nutricionista pessoal de bolso.</p>
                         </div>
-                        <Button onClick={() => window.open('https://pay.cakto.com.br/3fotcu8_725073')}>QUERO CONTINUAR MAGRA</Button>
+                        <form onSubmit={handleSubmit} className="w-full max-w-xs space-y-4">
+                            <div className="text-left">
+                                <label className="block text-sm font-medium text-gray-700 mb-1 ml-1">Seu melhor e-mail</label>
+                                <input type="email" required placeholder="exemplo@email.com" value={email} onChange={(e) => setEmail(e.target.value)}
+                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:border-orange-500 outline-none transition-all" />
+                            </div>
+                            <Button fullWidth type="submit" disabled={loading || !email} className="flex items-center justify-center gap-2 py-4 text-lg">
+                                {loading ? 'Verificando...' : <>Começar Agora <ArrowRight className="w-5 h-5" /></>}
+                            </Button>
+                        </form>
+                        <p className="text-xs text-gray-400 flex items-center gap-1 justify-center mt-4">
+                            <Lock className="w-3 h-3" /> Seus dados estão seguros
+                        </p>
                     </div>
                 </div>
             );
@@ -207,57 +277,198 @@
 
         const Onboarding = ({ onSubmit }) => {
             const [step, setStep] = useState(1);
-            const [data, setData] = useState({ gender: 'Feminino', goal: Goal.LOSE, cookingTime: CookingTime.MEDIUM, favorites: [] });
-            
-            const update = (k, v) => setData(p => ({...p, [k]: v}));
-            const toggleFav = (f) => update('favorites', data.favorites.includes(f) ? data.favorites.filter(i=>i!==f) : [...data.favorites, f]);
-            
-            const renderStep = () => {
-                if(step === 1) return (
-                    <div className="space-y-4 fade-in">
-                        <h2 className="text-2xl font-bold text-center">Seus Dados</h2>
-                        <input type="number" placeholder="Idade" className="w-full p-3 bg-gray-50 border rounded-xl" onChange={e=>update('age', e.target.value)} />
-                        <input type="number" placeholder="Peso (kg)" className="w-full p-3 bg-gray-50 border rounded-xl" onChange={e=>update('weight', e.target.value)} />
-                        <input type="number" placeholder="Altura (cm)" className="w-full p-3 bg-gray-50 border rounded-xl" onChange={e=>update('height', e.target.value)} />
-                    </div>
-                );
-                if(step === 2) return (
-                    <div className="space-y-4 fade-in">
-                        <h2 className="text-2xl font-bold text-center">Objetivo</h2>
-                        {Object.values(Goal).map(g => (
-                            <div key={g} onClick={()=>update('goal', g)} 
-                                className={`p-4 border-2 rounded-xl ${data.goal===g ? 'border-orange-500 bg-orange-50' : 'border-transparent bg-gray-50'}`}>{g}</div>
-                        ))}
-                    </div>
-                );
-                if(step === 3) return (
-                    <div className="space-y-4 fade-in">
-                        <h2 className="text-2xl font-bold text-center">Rotina</h2>
-                        {Object.values(CookingTime).map(t => (
-                            <div key={t} onClick={()=>update('cookingTime', t)}
-                                className={`p-3 border rounded-xl ${data.cookingTime===t ? 'bg-orange-500 text-white' : 'bg-white'}`}>{t}</div>
-                        ))}
-                        <textarea placeholder="Restrições (ex: sem glúten)" className="w-full p-3 border rounded-xl" onChange={e=>update('restrictions', e.target.value)}></textarea>
-                    </div>
-                );
-                return (
-                    <div className="space-y-4 h-[400px] overflow-y-auto fade-in">
-                        <h2 className="text-2xl font-bold text-center">Favoritos</h2>
-                        {['Ovos','Frango','Batata','Arroz','Feijão','Salada','Frutas','Chocolate','Café'].map(f => (
-                            <button key={f} onClick={()=>toggleFav(f)} 
-                                className={`m-1 px-3 py-1 rounded-lg border ${data.favorites.includes(f) ? 'bg-orange-500 text-white' : 'bg-white'}`}>{f}</button>
-                        ))}
-                    </div>
-                );
+            const [formData, setFormData] = useState({ gender: 'Feminino', goal: Goal.LOSE_WEIGHT, cookingTime: CookingTime.MEDIUM, favorites: [] });
+
+            const handleChange = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
+            const toggleFavorite = (id) => {
+                setFormData(prev => ({ ...prev, favorites: prev.favorites.includes(id) ? prev.favorites.filter(f => f !== id) : [...prev.favorites, id] }));
             };
+            const handleNext = () => step < 4 ? setStep(step + 1) : onSubmit(formData);
+
+            const foodCategories = [
+                { label: "🍚 Carboidratos", items: [{id: 'arroz', label: 'Arroz'}, {id: 'batata', label: 'Batata'}, {id: 'pao', label: 'Pão'}] },
+                { label: "🍗 Proteínas", items: [{id: 'frango', label: 'Frango'}, {id: 'ovos', label: 'Ovos'}, {id: 'carne', label: 'Carne'}] },
+                { label: "🥦 Vegetais", items: [{id: 'alface', label: 'Alface'}, {id: 'tomate', label: 'Tomate'}, {id: 'cenoura', label: 'Cenoura'}] }
+            ];
+
+            const renderStep1 = () => (
+                <div className="space-y-6 animate-fade-in">
+                    <div className="text-center mb-6"><h2 className="text-2xl font-bold">Sobre você</h2></div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <input type="number" placeholder="Idade" className="p-3 bg-gray-50 rounded-xl border w-full" onChange={e => handleChange('age', e.target.value)} />
+                        <select className="p-3 bg-gray-50 rounded-xl border w-full" onChange={e => handleChange('gender', e.target.value)}><option>Feminino</option><option>Masculino</option></select>
+                        <input type="number" placeholder="Peso (kg)" className="p-3 bg-gray-50 rounded-xl border w-full" onChange={e => handleChange('weight', e.target.value)} />
+                        <input type="number" placeholder="Altura (cm)" className="p-3 bg-gray-50 rounded-xl border w-full" onChange={e => handleChange('height', e.target.value)} />
+                    </div>
+                </div>
+            );
+
+            const renderStep2 = () => (
+                 <div className="space-y-3 animate-fade-in">
+                    <div className="text-center mb-6"><h2 className="text-2xl font-bold">Objetivo</h2></div>
+                    {Object.values(Goal).map(g => (
+                        <button key={g} onClick={() => { handleChange('goal', g); handleChange('objective', g); }}
+                            className={`w-full p-4 rounded-xl text-left border-2 ${formData.goal === g ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-transparent bg-gray-50'}`}>
+                            {g}
+                        </button>
+                    ))}
+                </div>
+            );
+
+            const renderStep3 = () => (
+                <div className="space-y-4 animate-fade-in">
+                    <div className="text-center mb-6"><h2 className="text-2xl font-bold">Rotina</h2></div>
+                    <label className="block text-sm font-bold">Tempo para cozinhar</label>
+                    {Object.values(CookingTime).map(t => (
+                        <button key={t} onClick={() => handleChange('cookingTime', t)} className={`w-full p-3 rounded-lg text-sm border ${formData.cookingTime === t ? 'bg-orange-500 text-white' : 'bg-white'}`}>{t}</button>
+                    ))}
+                    <label className="block text-sm font-bold mt-4">Restrições (Opcional)</label>
+                    <textarea className="w-full p-3 bg-gray-50 rounded-xl border" placeholder="Ex: Intolerante a lactose" onChange={e => handleChange('restrictions', e.target.value)} />
+                </div>
+            );
+
+            const renderStep4 = () => (
+                <div className="space-y-4 animate-fade-in h-[400px] overflow-y-auto">
+                    <div className="text-center"><h2 className="text-2xl font-bold">Favoritos</h2><p className="text-sm text-gray-500">Selecione o que gosta</p></div>
+                    {foodCategories.map(cat => (
+                        <div key={cat.label}>
+                            <h4 className="font-bold text-sm mb-2">{cat.label}</h4>
+                            <div className="flex flex-wrap gap-2">
+                                {cat.items.map(item => (
+                                    <button key={item.id} onClick={() => toggleFavorite(item.id)}
+                                        className={`px-3 py-1.5 rounded-lg text-sm border ${formData.favorites.includes(item.id) ? 'bg-orange-500 text-white' : 'bg-white'}`}>
+                                        {item.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
 
             return (
-                <div className="h-full bg-white p-6 flex flex-col">
-                    <div className="flex justify-center gap-2 mb-6">{[1,2,3,4].map(i => <div key={i} className={`h-1 w-8 rounded ${i<=step?'bg-orange-500':'bg-gray-200'}`}></div>)}</div>
-                    <div className="flex-1 flex flex-col justify-center">{renderStep()}</div>
-                    <Button onClick={() => step < 4 ? setStep(s=>s+1) : onSubmit(data)} disabled={step===1 && !data.weight}>
-                        {step===4 ? 'Gerar Dieta' : 'Continuar'}
-                    </Button>
+                <div className="flex flex-col h-full bg-white p-6">
+                    <div className="flex justify-center mb-6 gap-2">
+                        {[1,2,3,4].map(i => <div key={i} className={`h-1.5 rounded-full transition-all ${i<=step ? 'w-8 bg-orange-500' : 'w-2 bg-gray-200'}`} />)}
+                    </div>
+                    <div className="flex-1 flex flex-col justify-center max-w-sm mx-auto w-full">
+                        {step === 1 && renderStep1()}
+                        {step === 2 && renderStep2()}
+                        {step === 3 && renderStep3()}
+                        {step === 4 && renderStep4()}
+                    </div>
+                    <div className="mt-auto pt-6">
+                        <Button fullWidth onClick={handleNext} disabled={step===1 && (!formData.age || !formData.weight)}>
+                            {step === 4 ? <span className="flex items-center gap-2"><Flame className="w-5 h-5"/> Gerar Dieta</span> : <span className="flex items-center gap-2">Continuar <ChevronRight className="w-5 h-5"/></span>}
+                        </Button>
+                    </div>
+                </div>
+            );
+        };
+
+        const LoadingScreen = () => {
+            const [msg, setMsg] = useState("Analisando perfil...");
+            useEffect(() => {
+                const msgs = ["Calculando macros...", "Selecionando receitas...", "Montando cardápio...", "Finalizando..."];
+                let i = 0;
+                const interval = setInterval(() => { setMsg(msgs[i]); i = (i+1)%msgs.length; }, 2000);
+                return () => clearInterval(interval);
+            }, []);
+            return (
+                <div className="h-full bg-white flex flex-col items-center justify-center p-8 text-center">
+                    <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center mb-6 animate-pulse">
+                        <ChefHat className="w-10 h-10 text-orange-500" />
+                    </div>
+                    <h3 className="text-xl font-bold">Criando seu Plano</h3>
+                    <p className="text-gray-500 mt-2">{msg}</p>
+                    <div className="w-48 h-1 bg-gray-100 rounded-full overflow-hidden mt-6">
+                        <div className="h-full bg-orange-500 animate-[loading_8s_ease-out_forwards]" style={{width:'100%'}}></div>
+                    </div>
+                </div>
+            );
+        };
+
+        const PaymentScreen = () => {
+            const [time, setTime] = useState({ h: 3, m: 47, s: 22 });
+            useEffect(() => {
+                const t = setInterval(() => {
+                    setTime(p => {
+                        if (p.s > 0) return { ...p, s: p.s - 1 };
+                        if (p.m > 0) return { ...p, m: p.m - 1, s: 59 };
+                        if (p.h > 0) return { ...p, h: p.h - 1, m: 59, s: 59 };
+                        return p;
+                    });
+                }, 1000);
+                return () => clearInterval(t);
+            }, []);
+            const fmt = (n) => n.toString().padStart(2, '0');
+
+            return (
+                <div className="min-h-screen bg-white text-[#2B2D42] overflow-y-auto pb-10">
+                    <header className="bg-gradient-to-r from-[#FF6B35] to-[#FFA500] pt-6 pb-8 px-4 rounded-b-[2rem] shadow-xl relative z-10 text-center">
+                        <div className="bg-white/20 p-3 rounded-2xl backdrop-blur-sm inline-block mb-4"><ChefHat className="w-8 h-8 text-white" /></div>
+                        <p className="text-white text-sm font-medium mb-2 opacity-90">⏰ SEU ACESSO EXPIRA EM:</p>
+                        <div className="bg-white px-6 py-2 rounded-full shadow-lg inline-flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-[#E63946]" />
+                            <span className="text-[#E63946] text-xl font-black font-mono">{fmt(time.h)}:{fmt(time.m)}:{fmt(time.s)}</span>
+                        </div>
+                    </header>
+
+                    <div className="max-w-md mx-auto">
+                        <section className="px-8 py-8 text-center">
+                            <h1 className="text-[#FF6B35] text-2xl font-extrabold leading-tight mb-4">"Nas últimas 24h você teve clareza sobre o que comer."</h1>
+                            <p className="text-lg font-medium opacity-80">Você realmente vai <span className="underline decoration-[#E63946]">PERDER</span> isso?</p>
+                        </section>
+
+                        <section className="px-6 py-2">
+                            <div className="bg-[#FFF8E1] p-6 rounded-r-2xl border-l-4 border-[#E63946] shadow-sm">
+                                <h3 className="font-bold text-lg mb-4">Imagine amanhã sem Nutrix:</h3>
+                                <ul className="space-y-3 mb-6">
+                                    {['Acordar sem saber o que comer', 'Perdido no supermercado', 'Comendo qualquer coisa'].map((it,i)=>(
+                                        <li key={i} className="flex gap-2 text-sm"><X className="w-5 h-5 text-[#E63946]"/> {it}</li>
+                                    ))}
+                                </ul>
+                                <p className="text-[#E63946] font-black text-center text-xs uppercase">É ISSO QUE VOCÊ QUER?</p>
+                            </div>
+                        </section>
+
+                        <section className="px-6 py-8 bg-white text-center space-y-4">
+                            <p className="text-sm">⚠️ <strong>67% dos brasileiros não sabem comer bem</strong> (IBGE)</p>
+                            <p className="text-sm">📊 <strong>Falta de nutrição aumenta risco de diabetes em 58%</strong></p>
+                            <p className="text-[#FF6B35] font-bold text-lg pt-2">Por que voltar para a estatística?</p>
+                        </section>
+
+                        <section className="bg-gradient-to-b from-[#FF6B35]/10 to-white py-8 px-6">
+                            <div className="bg-white rounded-3xl shadow-xl border border-gray-100 p-6 relative text-center overflow-hidden">
+                                <div className="absolute top-0 right-0 bg-[#FF6B35] text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">MELHOR OFERTA</div>
+                                <div className="space-y-4 mb-6">
+                                    <div className="flex justify-between opacity-50 line-through text-sm"><span>❌ Presencial</span><span>R$250/h</span></div>
+                                    <div className="flex justify-between font-bold text-lg bg-green-50 p-2 rounded border border-green-100 text-[#2B2D42]">
+                                        <span className="flex gap-2"><Check className="w-4 h-4 text-green-600"/> Nutrix 24/7</span>
+                                        <span className="text-green-700">R$13,99/mês</span>
+                                    </div>
+                                </div>
+                                <div className="border-t border-dashed border-gray-200 pt-6">
+                                    <p className="text-gray-400 text-xs font-bold uppercase">Custa apenas</p>
+                                    <div className="flex justify-center items-baseline gap-1 text-[#FF6B35]"><span className="text-4xl font-black">R$0,46</span><span className="text-sm font-bold">/dia</span></div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section className="px-4 py-8 text-center">
+                            <p className="mb-6 font-medium">Voltar pra confusão ou continuar com clareza?<br/><strong className="text-[#FF6B35]">A escolha é óbvia.</strong></p>
+                            <button onClick={() => window.open(CAKTO_LINK, '_blank')} 
+                                className="w-full bg-gradient-to-r from-[#FF6B35] to-[#E63946] text-white py-5 rounded-2xl shadow-lg hover:scale-105 transition-transform animate-[pulse_3s_infinite]">
+                                <div className="flex items-center justify-center gap-2">
+                                    <span className="font-bold text-lg uppercase">CONTINUAR POR R$13,99</span>
+                                    <ArrowRight className="w-5 h-5"/>
+                                </div>
+                            </button>
+                            <button className="mt-6 text-xs text-gray-400">Não, prefiro não saber o que comer</button>
+                        </section>
+                        
+                        <footer className="text-center pb-8 px-4 text-[10px] text-gray-400 flex justify-center gap-2"><Lock className="w-3 h-3"/> Pagamento Seguro • Cancelamento Fácil</footer>
+                    </div>
                 </div>
             );
         };
@@ -267,128 +478,164 @@
             const [msgs, setMsgs] = useState([]);
             const [input, setInput] = useState('');
             const [loading, setLoading] = useState(false);
-            const [expanded, setExpanded] = useState(plan.days[0].day);
+            const [expandedDay, setExpanded] = useState(plan.days[0]?.day || '');
             const chatRef = useRef(null);
+            const scrollRef = useRef(null);
 
-            useEffect(() => { if(!chatRef.current) chatRef.current = services.createChat(profile, plan); }, []);
+            useEffect(() => {
+                if(!chatRef.current) chatRef.current = createChatSession(profile, plan);
+            }, [profile, plan]);
+            
+            useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, tab]);
 
-            const send = async () => {
-                if(!input) return;
-                const txt = input; setInput(''); setLoading(true); setMsgs(p=>[...p, {role:'user', text:txt}]); setTab('chat');
-                try {
-                    const res = await chatRef.current.sendMessage(txt);
-                    setMsgs(p=>[...p, {role:'model', text:res}]);
-                } catch { setMsgs(p=>[...p, {role:'model', text:'Erro de conexão.'}]); }
+            const send = async (txt) => {
+                if(!txt.trim() || loading) return;
+                const userMsg = { id: Date.now(), role: 'user', text: txt };
+                setMsgs(p => [...p, userMsg]);
+                setInput(''); setLoading(true); setTab('chat');
+                const res = await chatRef.current.sendMessage(txt);
+                setMsgs(p => [...p, { id: Date.now()+1, role: 'model', text: res.text }]);
                 setLoading(false);
             };
 
+            const renderPlan = () => (
+                <div className="pb-24 animate-fade-in">
+                    <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white p-6 rounded-b-3xl mb-6 shadow-lg">
+                        <div className="flex justify-between mb-2 opacity-90">
+                            <span className="text-xs font-bold uppercase flex gap-1"><Sparkles className="w-4 h-4"/> Plano Gerado</span>
+                            {isVip && <span className="bg-white/20 px-2 rounded-full text-xs font-bold flex gap-1"><Crown className="w-3 h-3 text-yellow-300"/> VIP</span>}
+                        </div>
+                        <h2 className="text-2xl font-bold">Seu Plano Semanal</h2>
+                        <p className="text-orange-100 text-sm">{profile.objective}</p>
+                    </div>
+                    <div className="px-4 space-y-4">
+                        {plan.days.map((d, i) => {
+                            const open = expandedDay === d.day;
+                            return (
+                                <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                    <button onClick={() => setExpanded(open ? '' : d.day)} className={`w-full p-4 flex justify-between font-bold text-lg ${open ? 'bg-orange-50 text-orange-700' : 'text-gray-700'}`}>
+                                        {d.day} {open ? <ChevronUp className="w-5 h-5"/> : <ChevronDown className="w-5 h-5"/>}
+                                    </button>
+                                    {open && <div className="p-4 space-y-6 bg-white animate-fade-in">
+                                        {Object.entries(d.meals).map(([type, meal]) => {
+                                            const labels = { breakfast: '🍳 Café', lunch: '🍽️ Almoço', snack: '🥤 Lanche', dinner: '🌙 Jantar' };
+                                            return (
+                                                <div key={type} className="border-l-4 border-orange-200 pl-4">
+                                                    <div className="flex justify-between mb-1">
+                                                        <h4 className="font-bold text-gray-800">{labels[type]}</h4>
+                                                        <span className="text-xs bg-gray-100 px-2 py-1 rounded-full">{meal.time}</span>
+                                                    </div>
+                                                    <p className="text-orange-600 font-medium mb-1">{meal.name}</p>
+                                                    <ul className="text-sm text-gray-600 mb-2">{meal.ingredients.map((ig, k) => <li key={k}>• {ig}</li>)}</ul>
+                                                    <button onClick={() => send(`Variação para ${meal.name} no ${d.day}`)} className="text-xs font-bold text-orange-500 flex items-center gap-1 bg-orange-50 px-2 py-1 rounded"><ChefHat className="w-3 h-3"/> Variações</button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+
+            const renderChat = () => (
+                <div className="flex flex-col h-full bg-gray-50 pb-20 animate-fade-in">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                        {msgs.length === 0 && <div className="text-center py-10 opacity-60"><p>👋 Olá! Pergunte sobre sua dieta.</p></div>}
+                        {msgs.map(m => (
+                            <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[85%] p-4 rounded-2xl text-sm ${m.role === 'user' ? 'bg-orange-500 text-white rounded-tr-none' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'}`}>{m.text}</div>
+                            </div>
+                        ))}
+                        {loading && <div className="flex"><div className="bg-white p-3 rounded-2xl border flex gap-1"><div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce"/><div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce delay-75"/><div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce delay-150"/></div></div>}
+                        <div ref={scrollRef} />
+                    </div>
+                    <div className="p-4 bg-white border-t sticky bottom-0">
+                        <form onSubmit={e => {e.preventDefault(); send(input)}} className="flex gap-2">
+                            <input value={input} onChange={e => setInput(e.target.value)} placeholder="Digite sua dúvida..." className="flex-1 p-3 bg-gray-50 border rounded-xl outline-none focus:border-orange-500" />
+                            <button disabled={!input.trim() || loading} className="p-3 bg-orange-500 text-white rounded-xl"><Send className="w-5 h-5"/></button>
+                        </form>
+                    </div>
+                </div>
+            );
+
             return (
                 <div className="flex flex-col h-full bg-gray-50">
-                    <div className="bg-white flex shadow-sm sticky top-0 z-10">
-                        <button onClick={()=>setTab('plan')} className={`flex-1 p-4 font-bold border-b-2 ${tab==='plan'?'border-orange-500 text-orange-500':'border-transparent text-gray-400'}`}>Plano</button>
-                        <button onClick={()=>setTab('chat')} className={`flex-1 p-4 font-bold border-b-2 ${tab==='chat'?'border-orange-500 text-orange-500':'border-transparent text-gray-400'}`}>Chat IA</button>
+                    <div className="bg-white shadow-sm flex sticky top-0 z-20">
+                        <button onClick={() => setTab('plan')} className={`flex-1 py-4 text-sm font-bold flex justify-center gap-2 border-b-2 ${tab === 'plan' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-400'}`}><Calendar className="w-4 h-4"/> Plano</button>
+                        <button onClick={() => setTab('chat')} className={`flex-1 py-4 text-sm font-bold flex justify-center gap-2 border-b-2 ${tab === 'chat' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-400'}`}><MessageCircle className="w-4 h-4"/> Chat IA</button>
                     </div>
-
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                        {tab === 'plan' ? (
-                            <div className="fade-in space-y-4 pb-20">
-                                <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white p-6 rounded-2xl shadow-lg">
-                                    <h2 className="text-2xl font-bold">Seu Plano</h2>
-                                    <p className="opacity-90">{profile.goal}</p>
-                                </div>
-                                {plan.days.map(d => (
-                                    <div key={d.day} className="bg-white rounded-xl shadow border overflow-hidden">
-                                        <div onClick={()=>setExpanded(expanded===d.day?'':d.day)} className="p-4 font-bold flex justify-between items-center bg-gray-50">
-                                            {d.day} <Icon name={expanded===d.day?'chevron-up':'chevron-down'} size={16}/>
-                                        </div>
-                                        {expanded===d.day && <div className="p-4 space-y-4">
-                                            {Object.entries(d.meals).map(([k,m]) => (
-                                                <div key={k} className="border-l-4 border-orange-200 pl-3">
-                                                    <div className="font-bold text-gray-700 capitalize">{k} <span className="text-xs font-normal bg-gray-100 px-2 rounded-full">{m.time}</span></div>
-                                                    <div className="text-orange-600 font-medium">{m.name}</div>
-                                                    <div className="text-sm text-gray-500">{m.ingredients.join(', ')}</div>
-                                                </div>
-                                            ))}
-                                        </div>}
-                                    </div>
-                                ))}
+                    <div className="flex-1 overflow-y-auto">{tab === 'plan' ? renderPlan() : renderChat()}</div>
+                    {tab === 'plan' && !isVip && (
+                        <div className="sticky bottom-0 z-30 bg-gray-900 text-white p-3 shadow-lg">
+                            <div className="flex justify-between items-center px-2">
+                                <div><div className="flex gap-1 text-orange-400 font-bold text-xs"><Clock className="w-3 h-3"/> TESTE GRÁTIS</div></div>
+                                <div className="text-right text-xs">Depois: R$ 0,46/dia</div>
                             </div>
-                        ) : (
-                            <div className="space-y-4 pb-20 fade-in">
-                                {msgs.map((m,i) => (
-                                    <div key={i} className={`flex ${m.role==='user'?'justify-end':'justify-start'}`}>
-                                        <div className={`p-3 rounded-2xl max-w-[80%] ${m.role==='user'?'bg-orange-500 text-white':'bg-white border'}`}>{m.text}</div>
-                                    </div>
-                                ))}
-                                {loading && <div className="text-center text-gray-400 text-sm">Digitando...</div>}
-                            </div>
-                        )}
-                    </div>
-
-                    {tab === 'chat' && (
-                        <div className="p-4 bg-white border-t flex gap-2">
-                            <input value={input} onChange={e=>setInput(e.target.value)} placeholder="Tire sua dúvida..." className="flex-1 p-3 border rounded-xl" />
-                            <button onClick={send} className="p-3 bg-orange-500 text-white rounded-xl"><Icon name="send" /></button>
-                        </div>
-                    )}
-                    
-                    {!isVip && tab === 'plan' && (
-                        <div className="bg-gray-900 text-white p-3 text-center text-xs sticky bottom-0 cursor-pointer" onClick={() => window.open('https://pay.cakto.com.br/3fotcu8_725073')}>
-                            Teste Grátis. <span className="font-bold text-orange-400">Clique para liberar acesso total.</span>
                         </div>
                     )}
                 </div>
             );
         };
 
-        // --- APP ROOT ---
+        // --- APP MAIN ---
         const App = () => {
-            const [step, setStep] = useState('loading'); // start with loading to check user
+            const [step, setStep] = useState('checking');
             const [user, setUser] = useState(null);
             const [plan, setPlan] = useState(null);
             const [isVip, setIsVip] = useState(false);
 
             useEffect(() => {
-                const email = localStorage.getItem('nutri_mail');
-                if(email) checkUser(email); else setStep('login');
+                const savedEmail = localStorage.getItem('nutri_user_email');
+                if (savedEmail) validateAccess(savedEmail);
+                else setStep('login');
             }, []);
 
-            const checkUser = async (email) => {
-                setStep('loading');
-                let u = await services.getUser(email);
-                if(!u) u = await services.createUser(email);
+            const validateAccess = async (email) => {
+                setStep('checking');
+                let u = await sheetDbService.getUserByEmail(email);
+                if (!u) u = await sheetDbService.createUser(email);
                 
                 setUser(u);
-                localStorage.setItem('nutri_mail', email);
+                localStorage.setItem('nutri_user_email', email);
 
-                const isPaid = u.status_pagamento === 'pago';
-                const hours = (new Date() - new Date(u.data_cadastro)) / 36e5;
-
-                if (isPaid) { setIsVip(true); setStep('onboarding'); }
-                else if (hours < 24) { setIsVip(false); setStep('onboarding'); }
-                else { setStep('payment'); }
+                if (u.status_pagamento === 'pago') {
+                    setIsVip(true);
+                    setStep('onboarding');
+                } else {
+                    const diffHours = (new Date() - new Date(u.data_cadastro)) / (1000 * 60 * 60);
+                    if (diffHours < 24) {
+                        setIsVip(false);
+                        setStep('onboarding');
+                    } else {
+                        setStep('payment');
+                    }
+                }
             };
 
-            const handleForm = async (data) => {
+            const handleProfileSubmit = async (profile) => {
                 setStep('loading');
-                const p = await services.generatePlan({...user, ...data});
-                setPlan(p);
+                const generatedPlan = await generateMealPlan(profile);
+                setPlan(generatedPlan);
                 setStep('dashboard');
             };
 
             return (
-                <>
-                    {step === 'login' && <LoginScreen onLogin={checkUser} />}
-                    {step === 'loading' && <LoadingScreen />}
-                    {step === 'payment' && <PaymentScreen />}
-                    {step === 'onboarding' && <Onboarding onSubmit={handleForm} />}
-                    {step === 'dashboard' && <Dashboard plan={plan} profile={user} isVip={isVip} />}
-                </>
+                <div className="flex justify-center items-center min-h-screen bg-gray-100 font-sans">
+                    <div className="w-full max-w-md h-[100dvh] bg-white shadow-xl overflow-hidden flex flex-col relative">
+                        {step === 'checking' && <div className="h-full flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500"></div></div>}
+                        {step === 'login' && <LoginScreen onLogin={validateAccess} />}
+                        {step === 'payment' && <PaymentScreen />}
+                        {step === 'onboarding' && <Onboarding onSubmit={handleProfileSubmit} />}
+                        {step === 'loading' && <LoadingScreen />}
+                        {step === 'dashboard' && <Dashboard plan={plan} profile={user} isVip={isVip} />}
+                    </div>
+                </div>
             );
         };
 
-        // MOUNT
-        const root = createRoot(document.getElementById('root'));
+        const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
 </body>
